@@ -3,6 +3,14 @@
 # system-onboard.sh - AI Workstation Onboarding (Ubuntu 24.04 LTS)
 # Target: x86_64 / arm64
 #
+
+# --- Architecture Detection ---
+ARCH=$(dpkg --print-architecture)
+if [[ "$ARCH" != "amd64" && "$ARCH" != "arm64" ]]; then
+    echo "Error: Unsupported architecture ($ARCH). Only x86_64 and arm64 are supported."
+    exit 1
+fi
+
 set -euo pipefail
 
 # --- Colors ---
@@ -46,13 +54,6 @@ touch "$LOG_FILE"
 # Ensure jq is installed for state management
 if ! command -v jq >/dev/null 2>&1; then
     apt-get update && apt-get install -y jq >> "$LOG_FILE" 2>&1
-fi
-
-# --- Architecture Detection ---
-ARCH=$(dpkg --print-architecture)
-if [[ "$ARCH" != "amd64" && "$ARCH" != "arm64" ]]; then
-    echo "Error: Unsupported architecture ($ARCH). Only x86_64 and arm64 are supported."
-    exit 1
 fi
 
 # --- State Helpers ---
