@@ -11,6 +11,27 @@ BOLD='\033[1m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+# --- Whiptail / Newt Theme ---
+export NEWT_COLORS='
+  root=,black
+  window=,lightgray
+  border=black,lightgray
+  shadow=,black
+  button=black,cyan
+  actbutton=white,cyan
+  compactbutton=black,lightgray
+  title=red,lightgray
+  textbox=black,lightgray
+  acttextbox=lightgray,black
+  entry=black,lightgray
+  disentry=gray,lightgray
+  checkbox=black,lightgray
+  actcheckbox=lightgray,black
+  listbox=black,lightgray
+  actlistbox=white,cyan
+  label=black,lightgray
+'
+
 # Intro disclaimer header
 echo -e "${RED}${BOLD}  🤖 SYSTEM ONBOARD 🤖  ${NC}"
 echo -e "\n${RED}System onboarding${NC}"
