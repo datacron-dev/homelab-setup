@@ -1,9 +1,33 @@
 #!/usr/bin/env bash
 #
 # system-onboard.sh - AI Workstation Onboarding (Ubuntu 24.04 LTS)
-# Target: x86_64 / arm64
+# Stream-friendly: designed to be run as:
+#   curl -fsSL https://raw.githubusercontent.com/skygate-dev/homelab-setup/main/system-onboard.sh | bash
 #
 set -euo pipefail
+
+# --- Helpers ---
+# Print to the user's terminal (works when script is piped)
+tty_print() { printf "%b\n" "$*" > /dev/tty; }
+
+# Detect whether running as root; set SUDO_CMD to use when needed
+if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+    SUDO_CMD=""
+    STATE_DIR="/var/lib/system-onboard"
+    LOG_FILE="/var/log/system-onboard.log"
+else
+    SUDO_CMD="sudo"
+    STATE_DIR="${HOME}/.system-onboard"
+    LOG_FILE="${HOME}/.system-onboard.log"
+fi
+
+# --- Architecture Detection (early) ---
+ARCH=$(dpkg --print-architecture 2>/dev/null || echo "unknown")
+if [[ "$ARCH" != "amd64" && "$ARCH" != "arm64" ]]; then
+    tty_print "Warning: Detected architecture: ${ARCH}. Supported: amd64, arm64."
+    # allow continuing for testing, but you may want to exit here:
+    # exit 1
+fi
 
 # --- Colors ---
 RED='\033[0;31m'
@@ -32,48 +56,87 @@ export NEWT_COLORS='
   label=black,lightgray
 '
 
-# Intro disclaimer header
-echo -e "${RED}${BOLD}  🤖 SYSTEM ONBOARD 🤖  ${NC}"
-echo -e "\n${RED}System onboarding${NC}"
-echo -e "${CYAN}Security ──────────────────────────────────────────────────────────────────${NC}"
-echo -e "│                                                                          │"
-echo -e "│  ${BOLD}Security warning - please read.${NC}                                         │"
-echo -e "│                                                                          │"
-echo -e "│  This script will perform a streamlined setup of your AI workstation.    │"
-echo -e "│  It will install and configure the following assets:                     │"
-echo -e "│  - ${CYAN}Docker, VS Code, Tailscale, Brave${NC}                                     │"
-echo -e "│  - ${CYAN}Ollama, LM Studio, OpenClaw${NC}                                           │"
-echo -e "│  - ${CYAN}Llama 3.1 Models (8B & 70B)${NC}                                           │"
-echo -e "│                                                                          │"
-echo -e "│  By continuing, you acknowledge that these tools can read files and      │"
-echo -e "│  execute actions on your system. Ensure you are on a secure network.     │"
-echo -e "│                                                                          │"
-echo -e "│                                                                          │"
-echo -e "${CYAN}───────────────────────────────────────────────────────────────────────────${NC}"
-echo ""
+printf "%b\n" "${CYAN}"
+cat <<'EOF' > /dev/tty
+█████████████████████████
+███   ██  ████  █  ██  ██
+██ ████  █  ██  ██  █  ██
+███  ████  █  ████  █  ██
+███  █  ████  ████  █  ██
+███  ████  ████  ████  ██
+███  █  ████  ████  █  ██
+███  ████  ████  ████  ██
+███  █  ████  ████  █  ██
+███  ████  ████  ████  ██
+███  █  ████  ████  █  ██
+███  ████  ████  ████  ██
+███  █  ████  ████  █  ██
+███  ████  ████  ████  ██
+███  █  ████  ████  █  ██
+█████████████████████████
+EOF
+printf "%b\n" "${NC}"
 
+# --- Print header to the terminal (not stdout) ---
+tty_print "${RED}${BOLD}  🤖 SYSTEM ONBOARD 🤖  ${NC}"
+tty_print ""
+tty_print "${RED}System onboarding${NC}"
+tty_print "${CYAN}Security ──────────────────────────────────────────────────────────────────${NC}"
+tty_print "│                                                                          │"
+tty_print "│  ${BOLD}Security warning - please read.${NC}                                         │"
+tty_print "│                                                                          │"
+tty_print "│  This script will perform a streamlined setup of your AI workstation.    │"
+tty_print "│  It will install and configure the following assets:                     │"
+tty_print "│  - ${CYAN}Docker, VS Code, Tailscale, Brave${NC}                                     │"
+tty_print "│  - ${CYAN}Ollama, LM Studio, OpenClaw${NC}                                           │"
+tty_print "│  - ${CYAN}Llama 3.1 Models (8B & 70B)${NC}                                           │"
+tty_print "│                                                                          │"
+tty_print "│  By continuing, you acknowledge that these tools can read files and      │"
+tty_print "│  execute actions on your system. Ensure you are on a secure network.     │"
+tty_print "│                                                                          │"
+tty_print "│  Target Architecture: ${BOLD}${ARCH}${NC}                                          │"
+tty_print "│                                                                          │"
+tty_print "${CYAN}───────────────────────────────────────────────────────────────────────────${NC}"
+tty_print ""
 
 # --- Configuration & Paths ---
-STATE_DIR="/var/lib/system-onboard"
 STATE_FILE="$STATE_DIR/state.json"
-LOG_FILE="/var/log/system-onboard.log"
-OS_CODENAME=$(lsb_release -sc)
+OS_CODENAME=$(lsb_release -sc 2>/dev/null || echo "unknown")
 
 # --- Initialization ---
 mkdir -p "$STATE_DIR"
-touch "$LOG_FILE"
+touch "$LOG_FILE" 2>/dev/null || true
 
-# Ensure jq is installed for state management
-if ! command -v jq >/dev/null 2>&1; then
-    apt-get update && apt-get install -y jq >> "$LOG_FILE" 2>&1
-fi
+# --- Ensure helper tools exist (jq, whiptail) ---
+ensure_pkg() {
+  local cmd="$1"; local pkg="$2"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    if [[ -z "$SUDO_CMD" ]]; then
+      # running as root: install directly
+      tty_print "Installing missing dependency: $pkg ..."
+      apt-get update -y >> "$LOG_FILE" 2>&1
+      apt-get install -y "$pkg" >> "$LOG_FILE" 2>&1
+    else
+      # not root: ask user if we can install using sudo
+      if command -v sudo >/dev/null 2>&1; then
+        if whiptail --title "Dependency required" --yesno "This script requires '$pkg' (command: $cmd). Install it now using sudo?" 10 60 </dev/tty; then
+          tty_print "Installing $pkg via sudo..."
+          $SUDO_CMD apt-get update -y >> "$LOG_FILE" 2>&1
+          $SUDO_CMD apt-get install -y "$pkg" >> "$LOG_FILE" 2>&1
+        else
+          tty_print "Dependency '$pkg' is required. Please install it and re-run the script."
+          exit 1
+        fi
+      else
+        tty_print "Missing '$pkg' and sudo not available. Please install '$pkg' and re-run."
+        exit 1
+      fi
+    fi
+  fi
+}
 
-# --- Architecture Detection ---
-ARCH=$(dpkg --print-architecture)
-if [[ "$ARCH" != "amd64" && "$ARCH" != "arm64" ]]; then
-    echo "Error: Unsupported architecture ($ARCH). Only x86_64 and arm64 are supported."
-    exit 1
-fi
+ensure_pkg jq jq
+ensure_pkg whiptail whiptail
 
 # --- State Helpers ---
 init_state() {
@@ -85,55 +148,86 @@ init_state() {
 is_done() { jq -e --arg k "$1" '.completed[$k] == "success"' "$STATE_FILE" >/dev/null 2>&1; }
 mark_done() { tmp=$(jq --arg k "$1" '.completed[$k] = "success"' "$STATE_FILE"); echo "$tmp" > "$STATE_FILE"; }
 
+# --- Install helper to pick apt/sudo/tee usage ---
+write_file_root() {
+  # usage: write_file_root "/etc/apt/sources.list.d/foo.list" "content..."
+  local path="$1"; shift
+  local content="$*"
+  if [[ -z "$SUDO_CMD" ]]; then
+    printf "%s" "$content" > "$path"
+  else
+    printf "%s" "$content" | $SUDO_CMD tee "$path" >/dev/null
+  fi
+}
+
 # --- Install Functions ---
 
 install_docker() {
     if is_done "docker"; then return 0; fi
-    echo "Installing Docker ($ARCH)..." | tee -a "$LOG_FILE"
-    apt-get update -y >> "$LOG_FILE" 2>&1
-    apt-get install -y ca-certificates curl gnupg >> "$LOG_FILE" 2>&1
-    install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=$ARCH signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $OS_CODENAME stable" > /etc/apt/sources.list.d/docker.list
-    apt-get update -y >> "$LOG_FILE" 2>&1
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >> "$LOG_FILE" 2>&1
+    tty_print "Installing Docker ($ARCH)... (this requires root privileges)"
+    # install prerequisites
+    if [[ -z "$SUDO_CMD" ]]; then
+      apt-get update -y >> "$LOG_FILE" 2>&1
+      apt-get install -y ca-certificates curl gnupg >> "$LOG_FILE" 2>&1
+      install -m 0755 -d /etc/apt/keyrings
+      curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
+      write_file_root /etc/apt/sources.list.d/docker.list "deb [arch=$ARCH signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $OS_CODENAME stable"
+      apt-get update -y >> "$LOG_FILE" 2>&1
+      apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >> "$LOG_FILE" 2>&1
+    else
+      $SUDO_CMD apt-get update -y >> "$LOG_FILE" 2>&1
+      $SUDO_CMD apt-get install -y ca-certificates curl gnupg >> "$LOG_FILE" 2>&1
+      $SUDO_CMD install -m 0755 -d /etc/apt/keyrings
+      curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor --yes | $SUDO_CMD tee /etc/apt/keyrings/docker.gpg >/dev/null
+      write_file_root /etc/apt/sources.list.d/docker.list "deb [arch=$ARCH signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $OS_CODENAME stable"
+      $SUDO_CMD apt-get update -y >> "$LOG_FILE" 2>&1
+      $SUDO_CMD apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >> "$LOG_FILE" 2>&1
+    fi
     mark_done "docker"
 }
 
 install_vscode() {
     if is_done "vscode"; then return 0; fi
-    echo "Installing VS Code ($ARCH)..." | tee -a "$LOG_FILE"
-    curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor --yes -o /etc/apt/keyrings/microsoft.gpg
-    echo "deb [arch=$ARCH signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list
-    apt-get update -y >> "$LOG_FILE" 2>&1
-    apt-get install -y code >> "$LOG_FILE" 2>&1
+    tty_print "Installing VS Code ($ARCH)... (this requires root privileges)"
+    if [[ -z "$SUDO_CMD" ]]; then
+      curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor --yes -o /etc/apt/keyrings/microsoft.gpg
+      write_file_root /etc/apt/sources.list.d/vscode.list "deb [arch=$ARCH signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/code stable main"
+      apt-get update -y >> "$LOG_FILE" 2>&1
+      apt-get install -y code >> "$LOG_FILE" 2>&1
+    else
+      curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor --yes | $SUDO_CMD tee /etc/apt/keyrings/microsoft.gpg >/dev/null
+      write_file_root /etc/apt/sources.list.d/vscode.list "deb [arch=$ARCH signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/code stable main"
+      $SUDO_CMD apt-get update -y >> "$LOG_FILE" 2>&1
+      $SUDO_CMD apt-get install -y code >> "$LOG_FILE" 2>&1
+    fi
     mark_done "vscode"
 }
 
 install_tailscale() {
     if is_done "tailscale"; then return 0; fi
-    echo "Installing Tailscale..." | tee -a "$LOG_FILE"
+    tty_print "Installing Tailscale..."
+    # tailscale installer runs as normal user but uses sudo inside if needed
     curl -fsSL https://tailscale.com/install.sh | sh >> "$LOG_FILE" 2>&1
     mark_done "tailscale"
 }
 
 install_ollama() {
     if is_done "ollama"; then return 0; fi
-    echo "Installing Ollama..." | tee -a "$LOG_FILE"
+    tty_print "Installing Ollama..."
     curl -fsSL https://ollama.com/install.sh | sh >> "$LOG_FILE" 2>&1
     mark_done "ollama"
 }
 
 install_openclaw() {
     if is_done "openclaw"; then return 0; fi
-    echo "Installing OpenClaw..." | tee -a "$LOG_FILE"
+    tty_print "Installing OpenClaw..."
     curl -fsSL https://openclaw.ai/install.sh | bash >> "$LOG_FILE" 2>&1
     mark_done "openclaw"
 }
 
 install_lmstudio() {
     if is_done "lmstudio"; then return 0; fi
-    echo "Installing LM Studio..." | tee -a "$LOG_FILE"
+    tty_print "Installing LM Studio..."
     curl -fsSL https://lmstudio.ai/install.sh | bash >> "$LOG_FILE" 2>&1
     mark_done "lmstudio"
 }
@@ -141,36 +235,47 @@ install_lmstudio() {
 pull_model() {
     local model=$1
     if is_done "model_$model"; then return 0; fi
-    echo "Pulling model: $model (This may take a while)..." | tee -a "$LOG_FILE"
+    tty_print "Pulling model: $model (This may take a while)..."
     ollama pull "$model" >> "$LOG_FILE" 2>&1
     mark_done "model_$model"
 }
 
-# --- UI Menus ---
+# --- UI Menus (stream-safe: use /dev/tty) ---
 
 show_main_menu() {
-    CHOICES=$(whiptail --title "System Onboard - Software" --checklist \
-    "Select programs to install (Space to select, Enter to confirm)" 20 78 10 \
-    "docker" "Docker Engine ($ARCH)" ON \
-    "vscode" "Visual Studio Code" ON \
-    "tailscale" "Tailscale VPN" ON \
-    "brave" "Brave Browser" OFF \
-    "ollama" "Ollama (Local LLM Runner)" ON \
-    "lmstudio" "LM Studio" OFF \
-    "openclaw" "OpenClaw Quickstart" OFF 3>&1 1>&2 2>&3) || exit 0
+    CHOICES=$(
+      whiptail --title "System Onboard - Software" --checklist \
+        "Select programs to install (Space to select, Enter to confirm)" 20 78 10 \
+        "docker" "Docker Engine ($ARCH)" ON \
+        "vscode" "Visual Studio Code" ON \
+        "tailscale" "Tailscale VPN" ON \
+        "brave" "Brave Browser" OFF \
+        "ollama" "Ollama (Local LLM Runner)" ON \
+        "lmstudio" "LM Studio" OFF \
+        "openclaw" "OpenClaw Quickstart" OFF \
+        3>&1 1>&2 2>&3 </dev/tty
+    ) || { tty_print "Menu cancelled."; exit 0; }
 
-    # Save selections to state
-    tmp=$(jq --arg c "$CHOICES" '.selected.apps = ($c | split(" ") | map(gsub("\""; "")))' "$STATE_FILE")
+    # Save selections to state (convert " \"docker\" \"vscode\" " into array)
+    # Clean and store as JSON array in .selected.apps
+    local cleaned
+    cleaned=$(printf "%s" "$CHOICES" | sed 's/"//g' | awk '{$1=$1};1')
+    tmp=$(jq --argjson apps "$(printf '%s\n' $cleaned | jq -R . | jq -s .)" '.selected.apps = $apps' "$STATE_FILE")
     echo "$tmp" > "$STATE_FILE"
 }
 
 show_model_menu() {
-    MODELS=$(whiptail --title "System Onboard - Models" --checklist \
-    "Select models to download via Ollama" 20 78 10 \
-    "llama3.1:8b" "Llama 3.1 8B (~4.7 GB)" ON \
-    "llama3.1:70b" "Llama 3.1 70B (~40 GB)" OFF 3>&1 1>&2 2>&3) || return 0
+    MODELS=$(
+      whiptail --title "System Onboard - Models" --checklist \
+        "Select models to download via Ollama" 20 78 10 \
+        "llama3.1:8b" "Llama 3.1 8B (~4.7 GB)" ON \
+        "llama3.1:70b" "Llama 3.1 70B (~40 GB)" OFF \
+        3>&1 1>&2 2>&3 </dev/tty
+    ) || return 0
 
-    tmp=$(jq --arg m "$MODELS" '.selected.models = ($m | split(" ") | map(gsub("\""; "")))' "$STATE_FILE")
+    local cleaned
+    cleaned=$(printf "%s" "$MODELS" | sed 's/"//g' | awk '{$1=$1};1')
+    tmp=$(jq --argjson models "$(printf '%s\n' $cleaned | jq -R . | jq -s .)" '.selected.models = $models' "$STATE_FILE")
     echo "$tmp" > "$STATE_FILE"
 }
 
@@ -178,7 +283,7 @@ show_model_menu() {
 
 run_installs() {
     # Apps
-    APPS=$(jq -r '.selected.apps[]' "$STATE_FILE" 2>/dev/null || true)
+    APPS=$(jq -r '.selected.apps[]?' "$STATE_FILE" 2>/dev/null || true)
     for app in $APPS; do
         case $app in
             docker) install_docker ;;
@@ -187,13 +292,22 @@ run_installs() {
             ollama) install_ollama ;;
             openclaw) install_openclaw ;;
             lmstudio) install_lmstudio ;;
+            brave) tty_print "Brave install not yet implemented; skipping." ;;
+            *) tty_print "Unknown app: $app" ;;
         esac
     done
 
     # Models (Requires Ollama)
-    MODELS=$(jq -r '.selected.models[]' "$STATE_FILE" 2>/dev/null || true)
+    MODELS=$(jq -r '.selected.models[]?' "$STATE_FILE" 2>/dev/null || true)
     if [[ -n "$MODELS" ]]; then
-        if ! command -v ollama >/dev/null 2>&1; then install_ollama; fi
+        if ! command -v ollama >/dev/null 2>&1; then
+            if whiptail --title "Ollama required" --yesno "Ollama is required to pull models. Install Ollama now?" 10 60 </dev/tty; then
+                install_ollama
+            else
+                tty_print "Skipping model downloads because Ollama is not installed."
+                return
+            fi
+        fi
         for model in $MODELS; do
             pull_model "$model"
         done
@@ -202,13 +316,22 @@ run_installs() {
 
 # --- Main Entry ---
 init_state
+
+# If STATE_FILE was just created, ensure it is valid JSON (jq)
+if ! jq empty "$STATE_FILE" >/dev/null 2>&1; then
+    echo '{"completed":{}, "selected":{}}' > "$STATE_FILE"
+fi
+
 show_main_menu
 show_model_menu
 
-whiptail --title "Ready" --yesno "The script will now begin installing your selections. View progress in $LOG_FILE. Proceed?" 10 60 || exit 0
+if ! whiptail --title "Ready" --yesno "The script will now begin installing your selections. View progress in $LOG_FILE. Proceed?" 10 60 </dev/tty; then
+    tty_print "Installation cancelled."
+    exit 0
+fi
 
 run_installs
 
 # Final Summary
-SUMMARY=$(jq -r '.completed | to_entries[] | "- \(.key): \(.value)"' "$STATE_FILE")
-whiptail --title "Onboarding Complete" --msgbox "The following items were processed:\n\n$SUMMARY\n\nLog saved to $LOG_FILE" 20 70
+SUMMARY=$(jq -r '.completed | to_entries[] | "- \(.key): \(.value)"' "$STATE_FILE" 2>/dev/null || echo "No items processed.")
+whiptail --title "Onboarding Complete" --msgbox "The following items were processed:\n\n$SUMMARY\n\nLog saved to $LOG_FILE" 20 70 </dev/tty
