@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-menu.sh - Minimal test for Unicode/ASCII circle checklist UI
+# test-menu-fixed.sh - Minimal test for Unicode/ASCII circle checklist UI (stty -> /dev/tty)
 # Controls:
 #  ↑ / ↓ : move
 #  Space : toggle selection
@@ -41,11 +41,15 @@ for ((i=0;i<${#items[@]};i++)); do sel[i]=0; done
 # Prepare /dev/tty for input
 exec 3</dev/tty
 
-# Save stty and ensure restore
-oldstty=$(stty -g)
+# Save stty state (explicitly read from /dev/tty)
+oldstty=$(stty -g < /dev/tty 2>/dev/null || true)
+
 cleanup() {
-  stty "$oldstty"
-  exec 3<&-
+  # restore stty to /dev/tty if we captured one
+  if [[ -n "$oldstty" ]]; then
+    stty "$oldstty" < /dev/tty 2>/dev/null || true
+  fi
+  exec 3<&- || true
   printf "%b" "$NC" > /dev/tty
 }
 trap cleanup RETURN INT TERM
@@ -84,8 +88,62 @@ while [[ $done -eq 0 ]]; do
     fi
   done
 
-  # Read key
-  stty -echo -icanon time 0 min 0
+  # Read key from /dev/tty, and configure stty on /dev/tty
+  stty -echo -icanon time 0 min 0 < /dev/tty 2>/dev/null || true
   key1=""
   while true; do
-    read -rsn1 -u 3
+    read -rsn1 -u 3 key1 2>/dev/null || true
+    if [[ -n "$key1" ]]; then break; fi
+    sleep 0.02
+  done
+
+  if [[ $key1 == $'\x1b' ]]; then
+    # maybe arrow sequence
+    read -rsn1 -t 0.01 -u 3 key2 2>/dev/null || true
+    read -rsn1 -t 0.01 -u 3 key3 2>/dev/null || true
+    seq="$key2$key3"
+    case "$seq" in
+      "[A") ((cursor--)); if [[ $cursor -lt 0 ]]; then cursor=$((count-1)); fi ;;
+      "[B") ((cursor++)); if [[ $cursor -ge $count ]]; then cursor=0; fi ;;
+      "[D") # left -> back
+        # restore stty and exit with code 1
+        stty "$oldstty" < /dev/tty 2>/dev/null || true
+        exec 3<&-
+        printf "\nBack pressed (exit code 1)\n" > /dev/tty
+        exit 1
+        ;;
+      "[C") ((cursor++)); if [[ $cursor -ge $count ]]; then cursor=0; fi ;;
+      *) # standalone ESC
+        stty "$oldstty" < /dev/tty 2>/dev/null || true
+        exec 3<&-
+        printf "\nESC pressed (exit code 2)\n" > /dev/tty
+        exit 2
+        ;;
+    esac
+  elif [[ $key1 == $'\x0a' || $key1 == $'\x0d' ]]; then
+    # Enter -> confirm
+    done=1
+  elif [[ $key1 == " " ]]; then
+    # toggle
+    if [[ ${sel[cursor]} -eq 1 ]]; then sel[cursor]=0; else sel[cursor]=1; fi
+  fi
+
+  # ensure stty restored to old settings in case loop continues (we'll reapply noncanonical each loop)
+  stty "$oldstty" < /dev/tty 2>/dev/null || true
+done
+
+# Final restore (cleanup trap will run)
+stty "$oldstty" < /dev/tty 2>/dev/null || true
+exec 3<&-
+
+# Print selections
+printf "\nSelected items:\n" > /dev/tty
+for ((i=0;i<count;i++)); do
+  if [[ ${sel[i]} -eq 1 ]]; then
+    key="${items[i]%%|*}"
+    label="${items[i]#*|}"
+    printf " - %s (%s)\n" "$key" "$label" > /dev/tty
+  fi
+done
+
+exit 0
