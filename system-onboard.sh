@@ -40,11 +40,20 @@ export NEWT_COLORS='
   root=,black
   window=,black
   border=green,black
+  shadow=,black
+  button=black,green
+  actbutton=white,green
+  compactbutton=black,green
   title=green,black
-  listbox=green,black
-  actlistbox=black,green
-  checkbox=green,black
-  actcheckbox=black,green
+  textbox=black,green
+  acttextbox=green,black
+  entry=black,green
+  disentry=darkgreen,black
+  checkbox=black,green
+  actcheckbox=green,black
+  listbox=black,green
+  actlistbox=white,green
+  label=green,black
 '
 
 # --- Print header to the terminal (not stdout) ---
