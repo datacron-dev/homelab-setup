@@ -38,22 +38,13 @@ NC='\033[0m'
 # --- Whiptail / Newt Theme ---
 export NEWT_COLORS='
   root=,black
-  window=,lightgray
-  border=black,lightgray
-  shadow=,black
-  button=black,cyan
-  actbutton=white,cyan
-  compactbutton=black,lightgray
-  title=red,lightgray
-  textbox=black,lightgray
-  acttextbox=lightgray,black
-  entry=black,lightgray
-  disentry=gray,lightgray
-  checkbox=black,lightgray
-  actcheckbox=lightgray,black
-  listbox=black,lightgray
-  actlistbox=white,cyan
-  label=black,lightgray
+  window=,black
+  border=green,black
+  title=green,black
+  listbox=green,black
+  actlistbox=black,green
+  checkbox=green,black
+  actcheckbox=black,green
 '
 
 # --- Print header to the terminal (not stdout) ---
