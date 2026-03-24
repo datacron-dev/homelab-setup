@@ -259,27 +259,172 @@ show_main_menu() {
     done
 }
 
-show_model_menu() {
-    while true; do
-        MODELS=$(
-          whiptail --title "System Onboard - Models" --checklist \
-            "Select models to download via Ollama\n\nPress ESC or Cancel to go back." 20 78 10 \
-            "llama3.1:8b" "Llama 3.1 8B (~4.7 GB)" ON \
-            "llama3.1:70b" "Llama 3.1 70B (~40 GB)" OFF \
-            3>&1 1>&2 2>&3 </dev/tty
-        )
-        RET=$?
-        if [[ $RET -eq 0 ]]; then
-            local cleaned
-            cleaned=$(printf "%s" "$MODELS" | sed 's/"//g' | awk '{$1=$1};1')
-            tmp=$(jq --argjson models "$(printf '%s\n' $cleaned | jq -R . | jq -s .)" '.selected.models = $models' "$STATE_FILE")
-            echo "$tmp" > "$STATE_FILE"
-            break
-        elif [[ $RET -eq 1 || $RET -eq 255 ]]; then
-            # Cancel or ESC pressed - go back to main menu
-            return 1
-        fi
+show_main_menu() {
+    # items in "id|Label" format
+    local items=(
+      "docker|Docker Engine ($ARCH)"
+      "vscode|Visual Studio Code"
+      "tailscale|Tailscale VPN"
+      "brave|Brave Browser"
+      "ollama|Ollama (Local LLM Runner)"
+      "lmstudio|LM Studio"
+      "openclaw|OpenClaw Quickstart"
+    )
+
+    # colors (fallback if terminal does not support)
+    local GREEN='\033[0;32m'
+    local WHITE='\033[0;37m'
+    local NC='\033[0m'
+
+    # load previous selections if present
+    declare -A sel
+    local i=0 key name
+    for pair in "${items[@]}"; do
+      name="${pair%%|*}"
+      sel[$i]=0
+      ((i++))
     done
+    # load saved selections from STATE_FILE if exists
+    if [[ -f "$STATE_FILE" ]]; then
+      local saved
+      saved=$(jq -r '.selected.apps[]?' "$STATE_FILE" 2>/dev/null || true)
+      if [[ -n "$saved" ]]; then
+        while read -r s; do
+          i=0
+          for pair in "${items[@]}"; do
+            key="${pair%%|*}"
+            if [[ "$key" == "$s" ]]; then
+              sel[$i]=1
+            fi
+            ((i++))
+          done
+        done <<< "$saved"
+      fi
+    fi
+
+    # terminal io fd for reading
+    exec 3</dev/tty
+
+    # save terminal state and ensure cleanup
+    local oldstty
+    oldstty=$(stty -g)
+    trap 'stty "$oldstty"; exec 3<&-; printf "%b" "$NC" > /dev/tty' RETURN INT TERM
+
+    # keyboard handling vars
+    local cursor=0
+    local count=${#items[@]}
+    local done=0
+
+    while [[ $done -eq 0 ]]; do
+      # clear and draw
+      printf "\033[H\033[2J" > /dev/tty
+      printf "%b\n" "${GREEN}┌───────────────────────────────────────────────────────────────┐${NC}" > /dev/tty
+      printf "%b\n" "${GREEN}│${NC}  System Onboard - Software${GREEN}                             │${NC}" > /dev/tty
+      printf "%b\n" "${GREEN}└───────────────────────────────────────────────────────────────┘${NC}" > /dev/tty
+      printf "\n" > /dev/tty
+      printf "%b\n" "Use ↑/↓ to move, Space to toggle, Enter to confirm, ← to go back, ESC to exit" > /dev/tty
+      printf "\n" > /dev/tty
+
+      i=0
+      for pair in "${items[@]}"; do
+        key="${pair%%|*}"
+        label="${pair#*|}"
+
+        if [[ $i -eq $cursor ]]; then
+          # focused row: white filled circle regardless of selection (per request)
+          printf "%b " "${WHITE}●${NC}" > /dev/tty
+          printf "%b\n" "${WHITE}${label}${NC}" > /dev/tty
+        else
+          if [[ ${sel[$i]} -eq 1 ]]; then
+            # selected but not focused: green filled
+            printf "%b " "${GREEN}●${NC}" > /dev/tty
+            printf "%b\n" "${GREEN}${label}${NC}" > /dev/tty
+          else
+            # not selected and not focused: green empty circle
+            printf "%b " "${GREEN}○${NC}" > /dev/tty
+            printf "%b\n" "${GREEN}${label}${NC}" > /dev/tty
+          fi
+        fi
+        ((i++))
+      done
+
+      # read key (handle arrow escape sequences)
+      stty -echo -icanon time 0 min 0
+      # wait for keypress
+      local key1 key2 key3 seq
+      key1=""
+      while true; do
+        read -rsn1 -u 3 key1 2>/dev/null || true
+        if [[ -n "$key1" ]]; then break; fi
+        sleep 0.02
+      done
+
+      # If ESC (could be arrow or standalone)
+      if [[ $key1 == $'\x1b' ]]; then
+        # try to read two more bytes for arrow sequences
+        read -rsn1 -t 0.01 -u 3 key2 2>/dev/null || true
+        read -rsn1 -t 0.01 -u 3 key3 2>/dev/null || true
+        seq="$key2$key3"
+        case "$seq" in
+          "[A") # up
+            ((cursor--)); if [[ $cursor -lt 0 ]]; then cursor=$((count-1)); fi
+            ;;
+          "[B") # down
+            ((cursor++)); if [[ $cursor -ge $count ]]; then cursor=0; fi
+            ;;
+          "[D") # left (back)
+            # restore stty and close fd then return 1 to indicate back
+            stty "$oldstty"
+            exec 3<&-
+            return 1
+            ;;
+          "[C") # right (skip) -> treat same as down
+            ((cursor++)); if [[ $cursor -ge $count ]]; then cursor=0; fi
+            ;;
+          *) # standalone ESC -> exit onboarding
+            stty "$oldstty"
+            exec 3<&-
+            return 2
+            ;;
+        esac
+      elif [[ $key1 == $'\x0a' || $key1 == $'\x0d' ]]; then
+        # Enter -> confirm
+        done=1
+      elif [[ $key1 == " " ]]; then
+        # space -> toggle selection at cursor
+        if [[ ${sel[$cursor]} -eq 1 ]]; then
+          sel[$cursor]=0
+        else
+          sel[$cursor]=1
+        fi
+      fi
+    done
+
+    # restore terminal state and close descriptor
+    stty "$oldstty"
+    exec 3<&-
+
+    # build JSON array of selected keys and write to STATE_FILE
+    local sel_keys=()
+    i=0
+    for pair in "${items[@]}"; do
+      key="${pair%%|*}"
+      if [[ ${sel[$i]} -eq 1 ]]; then
+        sel_keys+=("$key")
+      fi
+      ((i++))
+    done
+
+    # Write into state.json .selected.apps
+    if [[ ${#sel_keys[@]} -gt 0 ]]; then
+      tmp=$(jq --argjson apps "$(printf '%s\n' "${sel_keys[@]}" | jq -R . | jq -s .)" '.selected.apps = $apps' "$STATE_FILE")
+      echo "$tmp" > "$STATE_FILE"
+    else
+      tmp=$(jq '.selected.apps = []' "$STATE_FILE")
+      echo "$tmp" > "$STATE_FILE"
+    fi
+
+    return 0
 }
 
 # --- Execution Loop ---
