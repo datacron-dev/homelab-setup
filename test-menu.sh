@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# test-menu-debug-space.sh - Debug menu w/ robust space handling + fallbacks
+# test-menu-space-fix.sh - Menu that accepts Space, Alt+Space (ESC+Space), and fallbacks (x/s)
 # Controls:
 #  ↑ / ↓ : move
-#  Space : toggle selection (accepted: 0x20, 0xA0)
+#  Space : toggle selection (normal or ESC+Space)
 #  x / s : toggle selection (fallback)
-#  Enter : confirm (exit code 0)
+#  Enter : confirm
 #  ←     : back (exit code 1)
-#  ESC   : cancel/exit (exit code 2)
+#  ESC   : cancel (press ESC alone)
 set -u
 
 # Colors
@@ -27,7 +27,6 @@ else
   EMPTY="O"
 fi
 
-# Menu items
 items=(
   "docker|Docker Engine (amd64)"
   "vscode|Visual Studio Code"
@@ -41,11 +40,10 @@ for ((i=0;i<${#items[@]};i++)); do sel[i]=0; done
 
 # open /dev/tty on fd 3
 if ! exec 3</dev/tty 2>/dev/null; then
-  echo "ERROR: cannot open /dev/tty. Run the script in an interactive terminal (not a backgrounded/non-tty stdin)."
+  echo "ERROR: cannot open /dev/tty. Run the script in an interactive terminal."
   exit 1
 fi
 
-# save stty for /dev/tty
 oldstty=$(stty -g < /dev/tty 2>/dev/null || true)
 
 cleanup() {
@@ -71,11 +69,11 @@ while [[ $done -eq 0 ]]; do
   # draw UI
   printf "\033[H\033[2J" > /dev/tty
   printf "%b\n" "${GREEN}┌────────────────────────────────────────────┐${NC}" > /dev/tty
-  printf "%b\n" "${GREEN}│${NC}  Debug Menu - Space handling test        ${GREEN}│${NC}" > /dev/tty
+  printf "%b\n" "${GREEN}│${NC}  Menu - Space toggle fix test            ${GREEN}│${NC}" > /dev/tty
   printf "%b\n" "${GREEN}└────────────────────────────────────────────┘${NC}" > /dev/tty
   printf "\n" > /dev/tty
   printf "%b\n" "${GREEN}Use ↑/↓ to move, Space to toggle, x/s to toggle (fallback), Enter to confirm, ← to go back, ESC to exit${NC}" > /dev/tty
-  printf "%b\n" "${CYAN}DEBUG: Key hex codes will be shown below.${NC}" > /dev/tty
+  printf "%b\n" "${CYAN}DEBUG: key hex printed below (helps diagnose odd mappings).${NC}" > /dev/tty
   printf "\n" > /dev/tty
 
   for ((i=0;i<count;i++)); do
@@ -95,10 +93,10 @@ while [[ $done -eq 0 ]]; do
     fi
   done
 
-  # set raw mode on /dev/tty for immediate reads
+  # raw mode for /dev/tty
   stty -echo -icanon time 0 min 0 < /dev/tty 2>/dev/null || true
 
-  # read first byte from /dev/tty via fd 3
+  # read first byte
   key1=""
   while true; do
     read -rsn1 -u 3 key1 2>/dev/null || true
@@ -106,51 +104,69 @@ while [[ $done -eq 0 ]]; do
     sleep 0.02
   done
 
-  # show debug hex for key1
   k1hex=$(hex_of_char "$key1" || true)
   printf "%b" "[DEBUG] key1 hex: ${k1hex:-}<empty>\n" > /dev/tty
 
   if [[ $key1 == $'\x1b' ]]; then
-    # possible arrow sequence; read remainder with short timeout
+    # On ESC, read additional bytes with slightly longer timeout to capture sequences
+    seq_rest=""
     key2=""; key3=""
-    read -rsn1 -t 0.05 -u 3 key2 2>/dev/null || true
-    read -rsn1 -t 0.05 -u 3 key3 2>/dev/null || true
-    k2hex=$(hex_of_char "$key2" || true)
-    k3hex=$(hex_of_char "$key3" || true)
-    printf "%b" "[DEBUG] key2 hex: ${k2hex:-}<empty> key3 hex: ${k3hex:-}<empty>\n" > /dev/tty
+    # read next byte (longer timeout to catch ESC+Space / Alt+Space)
+    read -rsn1 -t 0.15 -u 3 key2 2>/dev/null || true
+    if [[ -n "$key2" ]]; then
+      k2hex=$(hex_of_char "$key2" || true)
+      printf "%b" "[DEBUG] key2 hex: ${k2hex:-}<empty>\n" > /dev/tty
+      seq_rest+="$key2"
+      # if the second byte is '[' then it's an arrow/seq: read one more with short timeout
+      if [[ $key2 == "[" ]]; then
+        read -rsn1 -t 0.05 -u 3 key3 2>/dev/null || true
+        if [[ -n "$key3" ]]; then
+          k3hex=$(hex_of_char "$key3" || true)
+          printf "%b" "[DEBUG] key3 hex: ${k3hex:-}<empty>\n" > /dev/tty
+          seq_rest+="$key3"
+        fi
+      fi
+    fi
 
-    seq="$key2$key3"
-    case "$seq" in
-      "[A") ((cursor--)); if [[ $cursor -lt 0 ]]; then cursor=$((count-1)); fi ;;
-      "[B") ((cursor++)); if [[ $cursor -ge $count ]]; then cursor=0; fi ;;
-      "[D")
-        stty "$oldstty" < /dev/tty 2>/dev/null || true
-        exec 3<&-
-        printf "\nBack pressed (exit code 1)\n" > /dev/tty
-        exit 1
-        ;;
-      "[C") ((cursor++)); if [[ $cursor -ge $count ]]; then cursor=0; fi ;;
-      *) # standalone ESC
-        stty "$oldstty" < /dev/tty 2>/dev/tty 2>/dev/null || true
-        exec 3<&-
-        printf "\nESC pressed (exit code 2)\n" > /dev/tty
-        exit 2
-        ;;
-    esac
+    # Now interpret seq_rest: priority for ESC+Space (Alt+Space), then arrow sequences, then standalone ESC
+    if [[ -n "$seq_rest" && "${seq_rest:0:1}" == " " ]]; then
+      # ESC + Space (Alt+Space) -> toggle selection
+      if [[ ${sel[cursor]} -eq 1 ]]; then sel[cursor]=0; else sel[cursor]=1; fi
+    elif [[ "$seq_rest" == "["* ]]; then
+      # arrow handling (e.g., "[A" / "[B" / "[C" / "[D")
+      case "$seq_rest" in
+        "[A"*) ((cursor--)); if [[ $cursor -lt 0 ]]; then cursor=$((count-1)); fi ;;
+        "[B"*) ((cursor++)); if [[ $cursor -ge $count ]]; then cursor=0; fi ;;
+        "[D"*) # left -> back
+          stty "$oldstty" < /dev/tty 2>/dev/null || true
+          exec 3<&-
+          printf "\nBack pressed (exit code 1)\n" > /dev/tty
+          exit 1
+          ;;
+        "[C"*) ((cursor++)); if [[ $cursor -ge $count ]]; then cursor=0; fi ;;
+        *) 
+          # unknown sequence after ESC: ignore
+          ;;
+      esac
+    else
+      # No additional bytes after ESC within timeout -> treat as standalone ESC (exit)
+      stty "$oldstty" < /dev/tty 2>/dev/null || true
+      exec 3<&-
+      printf "\nESC pressed (exit code 2)\n" > /dev/tty
+      exit 2
+    fi
 
   else
-    # non-escape single key handling
-    # get hex again (safe)
+    # non-escape single key
     k1hex=$(hex_of_char "$key1" || true)
-    # handle common forms of space and fallback keys
     case "$k1hex" in
       "0A"|"0D") # Enter
         done=1
         ;;
-      "20"|"A0") # normal space or NBSP
+      "20"|"A0") # Space (normal or NBSP)
         if [[ ${sel[cursor]} -eq 1 ]]; then sel[cursor]=0; else sel[cursor]=1; fi
         ;;
-      "78"|"58"|"73"|"53") # x/X (78/58) or s/S (73/53) hex values
+      "78"|"58"|"73"|"53") # x/X or s/S
         if [[ ${sel[cursor]} -eq 1 ]]; then sel[cursor]=0; else sel[cursor]=1; fi
         ;;
       *)
@@ -163,11 +179,11 @@ while [[ $done -eq 0 ]]; do
   stty "$oldstty" < /dev/tty 2>/dev/null || true
 done
 
-# final restore via trap
+# final restore
 stty "$oldstty" < /dev/tty 2>/dev/null || true
 exec 3<&-
 
-# print selection summary
+# Print selection summary
 printf "\nSelected items:\n" > /dev/tty
 for ((i=0;i<count;i++)); do
   if [[ ${sel[i]} -eq 1 ]]; then
