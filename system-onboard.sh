@@ -2,7 +2,7 @@
 #
 # system-onboard.sh - AI Workstation Onboarding (Ubuntu 24.04 LTS)
 # Stream-friendly: designed to be run as:
-#   curl -fsSL https://raw.githubusercontent.com/skygate-dev/homelab-setup/main/system-onboard.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/datacron-dev/homelab-setup/main/system-onboard.sh | bash
 #
 set -euo pipefail
 
@@ -36,22 +36,24 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # --- Whiptail / Newt Theme ---
-# Matrix NEWT_COLORS: green text, black background, green border, no green fill
+# Inactive: green text on black background
+# Active (focused): white text on black background for high contrast
 export NEWT_COLORS='
   root=,black
   window=,black
   border=green,black
   shadow=,black
 
-  # Buttons: green text (inactive) ; white when active
+  # Buttons: green text (inactive); white text when active
   button=green,black
   actbutton=white,black
   compactbutton=green,black
 
+  # Title and labels: green on black
   title=green,black
   label=green,black
 
-  # Lists / checkboxes / textboxes: green when idle, white when active
+  # Text areas / entries / lists / checkboxes: green when idle, white when active
   textbox=green,black
   acttextbox=white,black
   entry=green,black
