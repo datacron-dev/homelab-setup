@@ -43,24 +43,25 @@ export NEWT_COLORS='
   border=green,black
   shadow=,black
 
-  # Buttons: green text on black (no green fill)
+  # Buttons: green text (inactive) ; white when active
   button=green,black
-  actbutton=green,black
+  actbutton=white,black
   compactbutton=green,black
 
-  # Title and labels: green on black
   title=green,black
   label=green,black
 
-  # Text areas / entries / lists / checkboxes: green text, black background
+  # Lists / checkboxes / textboxes: green when idle, white when active
   textbox=green,black
-  acttextbox=green,black
+  acttextbox=white,black
   entry=green,black
   disentry=darkgreen,black
+
   checkbox=green,black
-  actcheckbox=green,black
+  actcheckbox=white,black
+
   listbox=green,black
-  actlistbox=green,black
+  actlistbox=white,black
 '
 
 # --- Print header to the terminal (not stdout) ---
