@@ -1,21 +1,15 @@
 #!/usr/bin/env bash
-# test-menu-space-fix.sh - Menu that accepts Space, Alt+Space (ESC+Space), and fallbacks (x/s)
-# Controls:
-#  ↑ / ↓ : move
-#  Space : toggle selection (normal or ESC+Space)
-#  x / s : toggle selection (fallback)
-#  Enter : confirm
-#  ←     : back (exit code 1)
-#  ESC   : cancel (press ESC alone)
+# test-menu-circle-only-highlight.sh
+# Menu that highlights only the circle while keeping labels green.
+# Accepts: Space (normal or ESC+Space), x/s fallback, arrow keys, Enter, ESC.
 set -u
 
 # Colors
 BRIGHT_GREEN=$'\033[1;32m'
 GREEN=$'\033[0;32m'
 BRIGHT_WHITE=$'\033[1;37m'
-WHITE=$'\033[0;37m'
-CYAN=$'\033[0;36m'
 NC=$'\033[0m'
+CYAN=$'\033[0;36m'
 
 # Glyphs
 CHARMAP=$(locale charmap 2>/dev/null || echo "")
@@ -69,7 +63,7 @@ while [[ $done -eq 0 ]]; do
   # draw UI
   printf "\033[H\033[2J" > /dev/tty
   printf "%b\n" "${GREEN}┌────────────────────────────────────────────┐${NC}" > /dev/tty
-  printf "%b\n" "${GREEN}│${NC}  Menu - Space toggle fix test            ${GREEN}│${NC}" > /dev/tty
+  printf "%b\n" "${GREEN}│${NC}  Menu - Circle-only highlight test       ${GREEN}│${NC}" > /dev/tty
   printf "%b\n" "${GREEN}└────────────────────────────────────────────┘${NC}" > /dev/tty
   printf "\n" > /dev/tty
   printf "%b\n" "${GREEN}Use ↑/↓ to move, Space to toggle, x/s to toggle (fallback), Enter to confirm, ← to go back, ESC to exit${NC}" > /dev/tty
@@ -79,21 +73,25 @@ while [[ $done -eq 0 ]]; do
   for ((i=0;i<count;i++)); do
     pair="${items[i]}"
     label="${pair#*|}"
+
     if [[ $i -eq $cursor ]]; then
+      # Focused: circle bright white, label stays GREEN
       printf "%b " "${BRIGHT_WHITE}${FILLED}${NC}" > /dev/tty
-      printf "%b\n" "${BRIGHT_WHITE}${label}${NC}" > /dev/tty
+      printf "%b\n" "${GREEN}${label}${NC}" > /dev/tty
     else
       if [[ ${sel[i]} -eq 1 ]]; then
+        # Selected & unfocused: bright green circle, label GREEN
         printf "%b " "${BRIGHT_GREEN}${FILLED}${NC}" > /dev/tty
-        printf "%b\n" "${BRIGHT_GREEN}${label}${NC}" > /dev/tty
+        printf "%b\n" "${GREEN}${label}${NC}" > /dev/tty
       else
+        # Unselected: green empty circle, label GREEN
         printf "%b " "${GREEN}${EMPTY}${NC}" > /dev/tty
         printf "%b\n" "${GREEN}${label}${NC}" > /dev/tty
       fi
     fi
   done
 
-  # raw mode for /dev/tty
+  # raw mode on /dev/tty
   stty -echo -icanon time 0 min 0 < /dev/tty 2>/dev/null || true
 
   # read first byte
@@ -108,16 +106,14 @@ while [[ $done -eq 0 ]]; do
   printf "%b" "[DEBUG] key1 hex: ${k1hex:-}<empty>\n" > /dev/tty
 
   if [[ $key1 == $'\x1b' ]]; then
-    # On ESC, read additional bytes with slightly longer timeout to capture sequences
+    # read additional bytes (longer timeout for ESC+Space)
     seq_rest=""
     key2=""; key3=""
-    # read next byte (longer timeout to catch ESC+Space / Alt+Space)
     read -rsn1 -t 0.15 -u 3 key2 2>/dev/null || true
     if [[ -n "$key2" ]]; then
       k2hex=$(hex_of_char "$key2" || true)
       printf "%b" "[DEBUG] key2 hex: ${k2hex:-}<empty>\n" > /dev/tty
       seq_rest+="$key2"
-      # if the second byte is '[' then it's an arrow/seq: read one more with short timeout
       if [[ $key2 == "[" ]]; then
         read -rsn1 -t 0.05 -u 3 key3 2>/dev/null || true
         if [[ -n "$key3" ]]; then
@@ -128,12 +124,11 @@ while [[ $done -eq 0 ]]; do
       fi
     fi
 
-    # Now interpret seq_rest: priority for ESC+Space (Alt+Space), then arrow sequences, then standalone ESC
+    # Interpret sequences: ESC+Space toggles; arrows handled; standalone ESC exits
     if [[ -n "$seq_rest" && "${seq_rest:0:1}" == " " ]]; then
-      # ESC + Space (Alt+Space) -> toggle selection
+      # ESC + Space (Alt+Space) -> toggle
       if [[ ${sel[cursor]} -eq 1 ]]; then sel[cursor]=0; else sel[cursor]=1; fi
     elif [[ "$seq_rest" == "["* ]]; then
-      # arrow handling (e.g., "[A" / "[B" / "[C" / "[D")
       case "$seq_rest" in
         "[A"*) ((cursor--)); if [[ $cursor -lt 0 ]]; then cursor=$((count-1)); fi ;;
         "[B"*) ((cursor++)); if [[ $cursor -ge $count ]]; then cursor=0; fi ;;
@@ -144,12 +139,10 @@ while [[ $done -eq 0 ]]; do
           exit 1
           ;;
         "[C"*) ((cursor++)); if [[ $cursor -ge $count ]]; then cursor=0; fi ;;
-        *) 
-          # unknown sequence after ESC: ignore
-          ;;
+        *) ;;
       esac
     else
-      # No additional bytes after ESC within timeout -> treat as standalone ESC (exit)
+      # standalone ESC -> exit
       stty "$oldstty" < /dev/tty 2>/dev/null || true
       exec 3<&-
       printf "\nESC pressed (exit code 2)\n" > /dev/tty
@@ -157,13 +150,13 @@ while [[ $done -eq 0 ]]; do
     fi
 
   else
-    # non-escape single key
+    # non-escape single key handling
     k1hex=$(hex_of_char "$key1" || true)
     case "$k1hex" in
       "0A"|"0D") # Enter
         done=1
         ;;
-      "20"|"A0") # Space (normal or NBSP)
+      "20"|"A0") # Space or NBSP
         if [[ ${sel[cursor]} -eq 1 ]]; then sel[cursor]=0; else sel[cursor]=1; fi
         ;;
       "78"|"58"|"73"|"53") # x/X or s/S
@@ -175,7 +168,7 @@ while [[ $done -eq 0 ]]; do
     esac
   fi
 
-  # restore stty for next iteration
+  # restore stty
   stty "$oldstty" < /dev/tty 2>/dev/null || true
 done
 
