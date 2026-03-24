@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-menu-fixed.sh - Minimal test for Unicode/ASCII circle checklist UI (stty -> /dev/tty)
+# test-menu-bright.sh - Minimal test for Unicode/ASCII circle checklist UI (bright colors)
 # Controls:
 #  ↑ / ↓ : move
 #  Space : toggle selection
@@ -11,10 +11,12 @@
 
 set -u
 
-# Colors (safe defaults)
-GREEN='\033[0;32m'
-WHITE='\033[0;37m'
-NC='\033[0m'
+# Bright/regular colors
+BRIGHT_GREEN=$'\033[1;32m'
+GREEN=$'\033[0;32m'
+BRIGHT_WHITE=$'\033[1;37m'
+WHITE=$'\033[0;37m'
+NC=$'\033[0m'
 
 # Detect UTF-8 for glyphs
 CHARMAP=$(locale charmap 2>/dev/null || echo "")
@@ -74,14 +76,16 @@ while [[ $done -eq 0 ]]; do
     label="${pair#*|}"
 
     if [[ $i -eq $cursor ]]; then
-      # Focused: white filled symbol + white label
-      printf "%b " "${WHITE}${FILLED}${NC}" > /dev/tty
-      printf "%b\n" "${WHITE}${label}${NC}" > /dev/tty
+      # Focused: bold white filled symbol + bold white label
+      printf "%b " "${BRIGHT_WHITE}${FILLED}${NC}" > /dev/tty
+      printf "%b\n" "${BRIGHT_WHITE}${label}${NC}" > /dev/tty
     else
       if [[ ${sel[i]} -eq 1 ]]; then
-        printf "%b " "${GREEN}${FILLED}${NC}" > /dev/tty
-        printf "%b\n" "${GREEN}${label}${NC}" > /dev/tty
+        # Selected but not-focused: BRIGHT GREEN filled circle + bright-green label
+        printf "%b " "${BRIGHT_GREEN}${FILLED}${NC}" > /dev/tty
+        printf "%b\n" "${BRIGHT_GREEN}${label}${NC}" > /dev/tty
       else
+        # Not selected: GREEN empty circle + green label
         printf "%b " "${GREEN}${EMPTY}${NC}" > /dev/tty
         printf "%b\n" "${GREEN}${label}${NC}" > /dev/tty
       fi
@@ -124,11 +128,11 @@ while [[ $done -eq 0 ]]; do
     # Enter -> confirm
     done=1
   elif [[ $key1 == " " ]]; then
-    # toggle
+    # toggle selection
     if [[ ${sel[cursor]} -eq 1 ]]; then sel[cursor]=0; else sel[cursor]=1; fi
   fi
 
-  # ensure stty restored to old settings in case loop continues (we'll reapply noncanonical each loop)
+  # ensure stty restored to old settings in case loop continues
   stty "$oldstty" < /dev/tty 2>/dev/null || true
 done
 
