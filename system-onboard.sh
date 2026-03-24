@@ -45,14 +45,14 @@ export NEWT_COLORS='
   actbutton=black,green
   compactbutton=black,green
   title=green,black
-  textbox=black,black
-  acttextbox=black,black
-  entry=black,black
+  textbox=green,black
+  acttextbox=green,black
+  entry=green,black
   disentry=darkgreen,black
-  checkbox=black,black
-  actcheckbox=black,black
-  listbox=black,black
-  actlistbox=black,black
+  checkbox=green,black
+  actcheckbox=green,black
+  listbox=green,black
+  actlistbox=green,black
   label=green,black
 '
 
