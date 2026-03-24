@@ -25,40 +25,51 @@ fi
 ARCH=$(dpkg --print-architecture 2>/dev/null || echo "unknown")
 if [[ "$ARCH" != "amd64" && "$ARCH" != "arm64" ]]; then
     tty_print "Warning: Detected architecture: ${ARCH}. Supported: amd64, arm64."
+    # allow continuing for testing, but you may want to exit here:
+    # exit 1
 fi
 
-# --- Colors (for custom menus and tty prints) ---
-GREEN='\033[0;32m'
-WHITE='\033[0;37m'
+# --- Colors ---
+RED='\033[0;31m'
 BOLD='\033[1m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-# --- Whiptail / Newt Theme (kept for compatibility if whiptail used elsewhere) ---
+# --- Whiptail / Newt Theme ---
+# Inactive: green text on black background
+# Active (focused): white text on black background for high contrast
 export NEWT_COLORS='
   root=,black
   window=,black
   border=green,black
   shadow=,black
+
+  # Buttons: green text (inactive); white text when active
   button=green,black
   actbutton=white,black
   compactbutton=green,black
+
+  # Title and labels: green on black
   title=green,black
   label=green,black
+
+  # Text areas / entries / lists / checkboxes: green when idle, white when active
   textbox=green,black
   acttextbox=white,black
   entry=green,black
   disentry=darkgreen,black
+
   checkbox=green,black
   actcheckbox=white,black
+
   listbox=green,black
   actlistbox=white,black
 '
 
 # --- Print header to the terminal (not stdout) ---
-tty_print "${BOLD}${WHITE}  🤖 SYSTEM ONBOARD 🤖  ${NC}"
+tty_print "${RED}${BOLD}  🤖 SYSTEM ONBOARD 🤖  ${NC}"
 tty_print ""
-tty_print "${BOLD}System onboarding${NC}"
+tty_print "${RED}System onboarding${NC}"
 tty_print "${CYAN}Security ──────────────────────────────────────────────────────────────────${NC}"
 tty_print "│                                                                          │"
 tty_print "│  ${BOLD}Security warning - please read.${NC}                                         │"
@@ -83,15 +94,17 @@ OS_CODENAME=$(lsb_release -sc 2>/dev/null || echo "unknown")
 mkdir -p "$STATE_DIR"
 touch "$LOG_FILE" 2>/dev/null || true
 
-# --- Ensure helper tools exist (jq) ---
+# --- Ensure helper tools exist (jq, whiptail) ---
 ensure_pkg() {
   local cmd="$1"; local pkg="$2"
   if ! command -v "$cmd" >/dev/null 2>&1; then
     if [[ -z "$SUDO_CMD" ]]; then
+      # running as root: install directly
       tty_print "Installing missing dependency: $pkg ..."
       apt-get update -y >> "$LOG_FILE" 2>&1
       apt-get install -y "$pkg" >> "$LOG_FILE" 2>&1
     else
+      # not root: ask user if we can install using sudo
       if command -v sudo >/dev/null 2>&1; then
         if whiptail --title "Dependency required" --yesno "This script requires '$pkg' (command: $cmd). Install it now using sudo?" 10 60 </dev/tty; then
           tty_print "Installing $pkg via sudo..."
@@ -110,16 +123,12 @@ ensure_pkg() {
 }
 
 ensure_pkg jq jq
+ensure_pkg whiptail whiptail
 
 # --- State Helpers ---
 init_state() {
     if [[ ! -f "$STATE_FILE" ]]; then
         echo '{"completed":{}, "selected":{}}' > "$STATE_FILE"
-    else
-        # ensure valid json
-        if ! jq empty "$STATE_FILE" >/dev/null 2>&1; then
-            echo '{"completed":{}, "selected":{}}' > "$STATE_FILE"
-        fi
     fi
 }
 
@@ -128,6 +137,7 @@ mark_done() { tmp=$(jq --arg k "$1" '.completed[$k] = "success"' "$STATE_FILE");
 
 # --- Install helper to pick apt/sudo/tee usage ---
 write_file_root() {
+  # usage: write_file_root "/etc/apt/sources.list.d/foo.list" "content..."
   local path="$1"; shift
   local content="$*"
   if [[ -z "$SUDO_CMD" ]]; then
@@ -137,10 +147,12 @@ write_file_root() {
   fi
 }
 
-# --- Install Functions (unchanged) ---
+# --- Install Functions ---
+
 install_docker() {
     if is_done "docker"; then return 0; fi
     tty_print "Installing Docker ($ARCH)... (this requires root privileges)"
+    # install prerequisites
     if [[ -z "$SUDO_CMD" ]]; then
       apt-get update -y >> "$LOG_FILE" 2>&1
       apt-get install -y ca-certificates curl gnupg >> "$LOG_FILE" 2>&1
@@ -181,6 +193,7 @@ install_vscode() {
 install_tailscale() {
     if is_done "tailscale"; then return 0; fi
     tty_print "Installing Tailscale..."
+    # tailscale installer runs as normal user but uses sudo inside if needed
     curl -fsSL https://tailscale.com/install.sh | sh >> "$LOG_FILE" 2>&1
     mark_done "tailscale"
 }
@@ -214,180 +227,59 @@ pull_model() {
     mark_done "model_$model"
 }
 
-# --- Custom Unicode circle checklist UI (stream-safe) ---
-
-# Generic UI builder reused by both menus
-# Parameters:
-#  $1 -> Title label (string)
-#  $2 -> newline-separated items in "key|Label" format (string)
-#  $3 -> state_key ("apps" or "models") used to store to .selected.$state_key
-# Returns:
-#   0 on confirm (Enter)
-#   1 on left-arrow/back
-#   2 on ESC (exit)
-show_unicode_checklist() {
-    local title="$1"
-    local items_blob="$2"
-    local state_key="$3"
-
-    # build items array
-    IFS=$'\n' read -r -d '' -a items < <(printf "%s\0" "$items_blob")
-
-    # initialize selection array
-    declare -a sel
-    local i=0
-    for pair in "${items[@]}"; do
-      sel[$i]=0
-      ((i++))
-    done
-    local count=${#items[@]}
-
-    # load saved selections if present
-    if [[ -f "$STATE_FILE" ]]; then
-      local saved
-      saved=$(jq -r --arg key "$state_key" '.selected[$key][]?' "$STATE_FILE" 2>/dev/null || true)
-      if [[ -n "$saved" ]]; then
-        while IFS= read -r s; do
-          i=0
-          for pair in "${items[@]}"; do
-            key="${pair%%|*}"
-            if [[ "$key" == "$s" ]]; then
-              sel[$i]=1
-            fi
-            ((i++))
-          done
-        done <<< "$saved"
-      fi
-    fi
-
-    # prepare /dev/tty input
-    exec 3</dev/tty
-
-    local oldstty
-    oldstty=$(stty -g)
-    trap 'stty "$oldstty"; exec 3<&-; printf "%b" "$NC" > /dev/tty' RETURN INT TERM
-
-    local cursor=0
-    local done=0
-    while [[ $done -eq 0 ]]; do
-      # draw UI
-      printf "\033[H\033[2J" > /dev/tty
-      printf "%b\n" "${GREEN}┌───────────────────────────────────────────────────────────────┐${NC}" > /dev/tty
-      printf "%b\n" "${GREEN}│${NC}  ${title} ${GREEN}                             │${NC}" > /dev/tty
-      printf "%b\n" "${GREEN}└───────────────────────────────────────────────────────────────┘${NC}" > /dev/tty
-      printf "\n" > /dev/tty
-      printf "%b\n" "${GREEN}Use ↑/↓ to move, Space to toggle, Enter to confirm, ← to go back, ESC to exit${NC}" > /dev/tty
-      printf "\n" > /dev/tty
-
-      i=0
-      for pair in "${items[@]}"; do
-        key="${pair%%|*}"
-        label="${pair#*|}"
-
-        if [[ $i -eq $cursor ]]; then
-          # focused: white filled circle + white label
-          printf "%b " "${WHITE}●${NC}" > /dev/tty
-          printf "%b\n" "${WHITE}${label}${NC}" > /dev/tty
-        else
-          if [[ ${sel[$i]} -eq 1 ]]; then
-            printf "%b " "${GREEN}●${NC}" > /dev/tty
-            printf "%b\n" "${GREEN}${label}${NC}" > /dev/tty
-          else
-            printf "%b " "${GREEN}○${NC}" > /dev/tty
-            printf "%b\n" "${GREEN}${label}${NC}" > /dev/tty
-          fi
-        fi
-        ((i++))
-      done
-
-      # read key input
-      stty -echo -icanon time 0 min 0
-      local key1 key2 key3 seq
-      key1=""
-      while true; do
-        read -rsn1 -u 3 key1 2>/dev/null || true
-        if [[ -n "$key1" ]]; then break; fi
-        sleep 0.02
-      done
-
-      if [[ $key1 == $'\x1b' ]]; then
-        # possible arrow sequence
-        read -rsn1 -t 0.01 -u 3 key2 2>/dev/null || true
-        read -rsn1 -t 0.01 -u 3 key3 2>/dev/null || true
-        seq="$key2$key3"
-        case "$seq" in
-          "[A") # up
-            ((cursor--)); if [[ $cursor -lt 0 ]]; then cursor=$((count-1)); fi
-            ;;
-          "[B") # down
-            ((cursor++)); if [[ $cursor -ge $count ]]; then cursor=0; fi
-            ;;
-          "[D") # left -> back
-            stty "$oldstty"
-            exec 3<&-
-            return 1
-            ;;
-          "[C") # right -> next (treat as down)
-            ((cursor++)); if [[ $cursor -ge $count ]]; then cursor=0; fi
-            ;;
-          *) # standalone ESC -> exit
-            stty "$oldstty"
-            exec 3<&-
-            return 2
-            ;;
-        esac
-      elif [[ $key1 == $'\x0a' || $key1 == $'\x0d' ]]; then
-        # Enter -> confirm
-        done=1
-      elif [[ $key1 == " " ]]; then
-        # toggle
-        if [[ ${sel[$cursor]} -eq 1 ]]; then
-          sel[$cursor]=0
-        else
-          sel[$cursor]=1
-        fi
-      fi
-    done
-
-    # restore terminal and close fd
-    stty "$oldstty"
-    exec 3<&-
-
-    # build selected keys
-    local sel_keys=()
-    i=0
-    for pair in "${items[@]}"; do
-      key="${pair%%|*}"
-      if [[ ${sel[$i]} -eq 1 ]]; then
-        sel_keys+=("$key")
-      fi
-      ((i++))
-    done
-
-    # write state back
-    if [[ ${#sel_keys[@]} -gt 0 ]]; then
-      tmp=$(jq --argjson arr "$(printf '%s\n' "${sel_keys[@]}" | jq -R . | jq -s .)" ".selected[\"$state_key\"] = \$arr" "$STATE_FILE")
-      echo "$tmp" > "$STATE_FILE"
-    else
-      tmp=$(jq ".selected[\"$state_key\"] = []" "$STATE_FILE")
-      echo "$tmp" > "$STATE_FILE"
-    fi
-
-    return 0
-}
-
-# --- Menus using the generic UI ---
+# --- UI Menus (stream-safe: use /dev/tty) ---
 
 show_main_menu() {
-  local items=$'docker|Docker Engine ('"$ARCH"')\nvscode|Visual Studio Code\ntailscale|Tailscale VPN\nbrave|Brave Browser\nollama|Ollama (Local LLM Runner)\nlmstudio|LM Studio\nopenclaw|OpenClaw Quickstart'
-  show_unicode_checklist "System Onboard - Software" "$items" "apps"
-  return $?
+    while true; do
+        CHOICES=$(
+          whiptail --title "System Onboard - Software" --checklist \
+            "Select programs to install (Space to select, Enter to confirm)\n\nPress ESC or Cancel to exit onboarding." 20 78 10 \
+            "docker" "Docker Engine ($ARCH)" ON \
+            "vscode" "Visual Studio Code" ON \
+            "tailscale" "Tailscale VPN" ON \
+            "brave" "Brave Browser" OFF \
+            "ollama" "Ollama (Local LLM Runner)" ON \
+            "lmstudio" "LM Studio" OFF \
+            "openclaw" "OpenClaw Quickstart" OFF \
+            3>&1 1>&2 2>&3 </dev/tty
+        )
+        RET=$?
+        if [[ $RET -eq 0 ]]; then
+            # Save selections to state
+            local cleaned
+            cleaned=$(printf "%s" "$CHOICES" | sed 's/"//g' | awk '{$1=$1};1')
+            tmp=$(jq --argjson apps "$(printf '%s\n' $cleaned | jq -R . | jq -s .)" '.selected.apps = $apps' "$STATE_FILE")
+            echo "$tmp" > "$STATE_FILE"
+            break
+        elif [[ $RET -eq 1 || $RET -eq 255 ]]; then
+            # Cancel or ESC pressed - exit onboarding
+            tty_print "Exiting onboarding."
+            exit 0
+        fi
+    done
 }
 
 show_model_menu() {
-  local items=$'llama3.1:8b|Llama 3.1 8B (~4.7 GB)\nllama3.1:70b|Llama 3.1 70B (~40 GB)'
-  show_unicode_checklist "System Onboard - Models" "$items" "models"
-  return $?
+    while true; do
+        MODELS=$(
+          whiptail --title "System Onboard - Models" --checklist \
+            "Select models to download via Ollama\n\nPress ESC or Cancel to go back." 20 78 10 \
+            "llama3.1:8b" "Llama 3.1 8B (~4.7 GB)" ON \
+            "llama3.1:70b" "Llama 3.1 70B (~40 GB)" OFF \
+            3>&1 1>&2 2>&3 </dev/tty
+        )
+        RET=$?
+        if [[ $RET -eq 0 ]]; then
+            local cleaned
+            cleaned=$(printf "%s" "$MODELS" | sed 's/"//g' | awk '{$1=$1};1')
+            tmp=$(jq --argjson models "$(printf '%s\n' $cleaned | jq -R . | jq -s .)" '.selected.models = $models' "$STATE_FILE")
+            echo "$tmp" > "$STATE_FILE"
+            break
+        elif [[ $RET -eq 1 || $RET -eq 255 ]]; then
+            # Cancel or ESC pressed - go back to main menu
+            return 1
+        fi
+    done
 }
 
 # --- Execution Loop ---
@@ -429,43 +321,24 @@ run_installs() {
 
 init_state
 
-# top-level loop to allow returning from model menu
-while true; do
-  # show main menu
-  if ! show_main_menu; then
-    rc=$?
-    if [[ $rc -eq 2 ]]; then
-      tty_print "Exiting onboarding."
-      exit 0
-    else
-      # back (1) at top-level => exit
-      tty_print "Exiting onboarding."
-      exit 0
-    fi
-  fi
+if ! jq empty "$STATE_FILE" >/dev/null 2>&1; then
+    echo '{"completed":{}, "selected":{}}' > "$STATE_FILE"
+fi
 
-  # show model menu
-  if ! show_model_menu; then
-    rc=$?
-    if [[ $rc -eq 1 ]]; then
-      # user pressed left to go back to main menu: loop again
-      continue
-    elif [[ $rc -eq 2 ]]; then
-      tty_print "Exiting onboarding."
-      exit 0
-    fi
-  fi
+show_main_menu
 
-  # confirm and proceed
-  if ! whiptail --title "Ready" --yesno "The script will now begin installing your selections. View progress in $LOG_FILE. Proceed?" 10 60 </dev/tty; then
-      tty_print "Installation cancelled."
-      exit 0
-  fi
+if ! show_model_menu; then
+    # User pressed ESC or Cancel in model menu, go back to main menu or exit
+    tty_print "Returning to main menu..."
+    show_main_menu
+fi
 
-  run_installs
+if ! whiptail --title "Ready" --yesno "The script will now begin installing your selections. View progress in $LOG_FILE. Proceed?" 10 60 </dev/tty; then
+    tty_print "Installation cancelled."
+    exit 0
+fi
 
-  break
-done
+run_installs
 
 # Final Summary
 SUMMARY=$(jq -r '.completed | to_entries[] | "- \(.key): \(.value)"' "$STATE_FILE" 2>/dev/null || echo "No items processed.")
