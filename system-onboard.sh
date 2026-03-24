@@ -36,15 +36,23 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # --- Whiptail / Newt Theme ---
+# Matrix NEWT_COLORS: green text, black background, green border, no green fill
 export NEWT_COLORS='
   root=,black
   window=,black
   border=green,black
   shadow=,black
-  button=black,green
-  actbutton=black,green
-  compactbutton=black,green
+
+  # Buttons: green text on black (no green fill)
+  button=green,black
+  actbutton=green,black
+  compactbutton=green,black
+
+  # Title and labels: green on black
   title=green,black
+  label=green,black
+
+  # Text areas / entries / lists / checkboxes: green text, black background
   textbox=green,black
   acttextbox=green,black
   entry=green,black
@@ -53,7 +61,6 @@ export NEWT_COLORS='
   actcheckbox=green,black
   listbox=green,black
   actlistbox=green,black
-  label=green,black
 '
 
 # --- Print header to the terminal (not stdout) ---
