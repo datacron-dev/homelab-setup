@@ -36,18 +36,18 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # --- Whiptail / Newt Theme ---
-# --- Whiptail / Newt Theme ---
 export NEWT_COLORS='
   root=,black
-  window=green,black
+  window=,black
   border=green,black
   shadow=,black
 
-  title=white,black
+  title=green,black
   label=green,black
 
   textbox=green,black
   acttextbox=white,black
+
   entry=green,black
   disentry=darkgray,black
 
