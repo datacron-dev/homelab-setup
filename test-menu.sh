@@ -96,30 +96,30 @@ touch "$LOG_FILE" 2>/dev/null || true
 
 # --- Ensure helper tools exist (jq, whiptail) ---
 ensure_pkg() {
-  local cmd="$1"; local pkg="$2"
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    if [[ -z "$SUDO_CMD" ]]; then
-      # running as root: install directly
-      tty_print "Installing missing dependency: $pkg ..."
-      apt-get update -y >> "$LOG_FILE" 2>&1
-      apt-get install -y "$pkg" >> "$LOG_FILE" 2>&1
-    else
-      # not root: ask user if we can install using sudo
-      if command -v sudo >/dev/null 2>&1; then
-        if whiptail --title "Dependency required" --yesno "This script requires '$pkg' (command: $cmd). Install it now using sudo?" 10 60 </dev/tty; then
-          tty_print "Installing $pkg via sudo..."
-          $SUDO_CMD apt-get update -y >> "$LOG_FILE" 2>&1
-          $SUDO_CMD apt-get install -y "$pkg" >> "$LOG_FILE" 2>&1
+    local cmd="$1"; local pkg="$2"
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        if [[ -z "$SUDO_CMD" ]]; then
+            # running as root: install directly
+            tty_print "Installing missing dependency: $pkg ..."
+            apt-get update -y >> "$LOG_FILE" 2>&1
+            apt-get install -y "$pkg" >> "$LOG_FILE" 2>&1
         else
-          tty_print "Dependency '$pkg' is required. Please install it and re-run the script."
-          exit 1
+            # not root: ask user if we can install using sudo
+            if command -v sudo >/dev/null 2>&1; then
+                if dialog --title "Dependency required" --yesno "This script requires '$pkg' (command: $cmd). Install it now using sudo?" 10 60 </dev/tty; then
+                    tty_print "Installing $pkg via sudo..."
+                    $SUDO_CMD apt-get update -y >> "$LOG_FILE" 2>&1
+                    $SUDO_CMD apt-get install -y "$pkg" >> "$LOG_FILE" 2>&1
+                else
+                    tty_print "Dependency '$pkg' is required. Please install it and re-run the script."
+                    exit 1
+                fi
+            else
+                tty_print "Missing '$pkg' and sudo not available. Please install '$pkg' and re-run."
+                exit 1
+            fi
         fi
-      else
-        tty_print "Missing '$pkg' and sudo not available. Please install '$pkg' and re-run."
-        exit 1
-      fi
     fi
-  fi
 }
 
 ensure_pkg jq jq
