@@ -233,26 +233,21 @@ pull_model() {
 }
 
 # --- UI Menus (stream-safe: use /dev/tty) ---
-show_main_menu() {
+show_model_menu() {
     while true; do
         CHOICES=$(
-            whiptail --title "System Onboard - Software" \
+            whiptail --title "System Onboard - Models" \
                 --radiolist \
-                "Select programs to install (Space to select, Enter to confirm)\n\nPress ESC or Cancel to exit onboarding." 20 78 10 \
-                "docker" "Docker Engine ($ARCH)" ON \
-                "vscode" "Visual Studio Code" ON \
-                "tailscale" "Tailscale VPN" ON \
-                "brave" "Brave Browser" OFF \
-                "ollama" "Ollama (Local LLM Runner)" ON \
-                "lmstudio" "LM Studio" OFF \
-                "openclaw" "OpenClaw Quickstart" OFF \
+                "Select models to download (Space to select, Enter to confirm)\n\nPress ESC or Cancel to exit onboarding." 20 78 10 \
+                "text-davinci-003" "Text-Davinci-003 ($ARCH)" ON \
+                "text-curie-001" "Text-Curie-001 ($ARCH)" OFF \
             )
         RET=$?
         if [[ $RET -eq 0 ]]; then
             # Save selections to state
             local cleaned
             cleaned=$(printf "%s" "$CHOICES" | sed 's/"//g' | awk '{$1=$1};1')
-            tmp=$(jq --argjson apps "$(printf '%s\n' $cleaned | jq -R . | jq -s .)" '.selected.apps = $apps' "$STATE_FILE")
+            tmp=$(jq --argjson models "$(printf '%s\n' $cleaned | jq -R . | jq -s .)" '.selected.models = $models' "$STATE_FILE")
             echo "$tmp" > "$STATE_FILE"
             break
         elif [[ $RET -eq 1 || $RET -eq 255 ]]; then
