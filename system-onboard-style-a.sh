@@ -264,27 +264,35 @@ show_main_menu() {
     done
 }
 
-show_model_menu() {
-    while true; do
-        MODELS=$(
-          whiptail --title "System Onboard - Models" --checklist \
-            "Select models to download via Ollama\n\nPress ESC or Cancel to go back." 20 78 10 \
-            "llama3.1:8b" "Llama 3.1 8B (~4.7 GB)" ON \
-            "llama3.1:70b" "Llama 3.1 70B (~40 GB)" OFF \
-            3>&1 1>&2 2>&3 </dev/tty
-        )
-        RET=$?
-        if [[ $RET -eq 0 ]]; then
-            local cleaned
-            cleaned=$(printf "%s" "$MODELS" | sed 's/"//g' | awk '{$1=$1};1')
-            tmp=$(jq --argjson models "$(printf '%s\n' $cleaned | jq -R . | jq -s .)" '.selected.models = $models' "$STATE_FILE")
-            echo "$tmp" > "$STATE_FILE"
-            break
-        elif [[ $RET -eq 1 || $RET -eq 255 ]]; then
-            # Cancel or ESC pressed - go back to main menu
-            return 1
-        fi
-    done
+show_main_menu() {
+  while true; do
+    CHOICES=$(
+      whiptail --title "System Onboard - Software" \
+        --checklist --scrollbar-both \
+        --radiolist --colors "#000000,#00FF00,fg:#ffffff,bg:#1a1d23" \
+        "Select programs to install (Space to select, Enter to confirm)\n\nPress ESC or Cancel to exit onboarding." 20 78 10 \
+      "docker" "Docker Engine ($ARCH)" ON \
+      "vscode" "Visual Studio Code" ON \
+      "tailscale" "Tailscale VPN" ON \
+      "brave" "Brave Browser" OFF \
+      "ollama" "Ollama (Local LLM Runner)" ON \
+      "lmstudio" "LM Studio" OFF \
+      "openclaw" "OpenClaw Quickstart" OFF \
+    )
+    RET=$?
+    if [[ $RET -eq 0 ]]; then
+      # Save selections to state
+      local cleaned
+      cleaned=$(printf "%s" "$CHOICES" | sed 's/"//g' | awk '{$1=$1};1')
+      tmp=$(jq --argjson apps "$(printf '%s\n' $cleaned | jq -R . | jq -s .)" '.selected.apps = $apps' "$STATE_FILE")
+      echo "$tmp" > "$STATE_FILE"
+      break
+    elif [[ $RET -eq 1 || $RET -eq 255 ]]; then
+      # Cancel or ESC pressed - exit onboarding
+      tty_print "Exiting onboarding."
+      exit 0
+    fi
+  done
 }
 
 # --- Execution Loop ---
