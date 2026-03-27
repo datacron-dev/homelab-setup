@@ -237,7 +237,7 @@ show_main_menu() {
     while true; do
         CHOICES=$(
             whiptail --title "System Onboard - Software" \
-                --radiolist --colors "#000000,#00FF00,fg:#ffffff,bg:#1a1d23" \
+                --radiolist \
                 "Select programs to install (Space to select, Enter to confirm)\n\nPress ESC or Cancel to exit onboarding." 20 78 10 \
                 "docker" "Docker Engine ($ARCH)" ON \
                 "vscode" "Visual Studio Code" ON \
