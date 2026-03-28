@@ -6,6 +6,14 @@
 #
 set -euo pipefail
 
+# --- Configuration & Paths ---
+STATE_FILE="$STATE_DIR/state.json"
+OS_CODENAME=$(lsb_release -sc 2>/dev/null || echo "unknown")
+
+# --- Initialization ---
+mkdir -p "$STATE_DIR"
+touch "$LOG_FILE" 2>/dev/null || true
+
 # --- Helpers ---
 tty_print() { printf "%b\n" "$*" > /dev/tty; }
 
@@ -86,14 +94,6 @@ tty_print "│  execute actions on your system. Ensure you are on a secure netwo
 tty_print "│                                                                          │"
 tty_print "${CYAN}───────────────────────────────────────────────────────────────────────────${NC}"
 tty_print ""
-
-# --- Configuration & Paths ---
-STATE_FILE="$STATE_DIR/state.json"
-OS_CODENAME=$(lsb_release -sc 2>/dev/null || echo "unknown")
-
-# --- Initialization ---
-mkdir -p "$STATE_DIR"
-touch "$LOG_FILE" 2>/dev/null || true
 
 # --- Ensure helper tools exist (jq, whiptail) ---
 ensure_pkg() {
