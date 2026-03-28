@@ -295,7 +295,7 @@ run_installs() {
     MODELS=$(jq -r '.selected.models[]?' "$STATE_FILE" 2>/dev/null || true)
     if [[ -n "$MODELS" ]]; then
         if ! command -v ollama >/dev/null 2>&1; then
-            if whiptail --title "Ollama required" --yesno "Ollama is required to pull models. Install Ollama now?" 10 60 </dev/tty; then
+            if whiptail --title "Ollama required" --yes-button "Install Ollama" --cancel-button "Skip Model Downloads" 10 60 </dev/tty; then
                 install_ollama
             else
                 tty_print "Skipping model downloads because Ollama is not installed."
