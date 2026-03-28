@@ -123,7 +123,7 @@ ensure_pkg() {
 }
 
 ensure_pkg jq jq
-# ensure_pkg whiptail whiptail
+ensure_pkg whiptail whiptail
 ensure_pkg dialog dialog
 
 # --- State Helpers ---
