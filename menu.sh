@@ -7,12 +7,10 @@
 set -euo pipefail
 
 # --- Configuration & Paths ---
-STATE_FILE="$STATE_DIR/state.json"
+STATE_DIR="${HOME}/.system-onboard"
+LOG_FILE="${HOME}/.system-onboard.log"
+SUDO_CMD=""
 OS_CODENAME=$(lsb_release -sc 2>/dev/null || echo "unknown")
-
-# --- Initialization ---
-mkdir -p "$STATE_DIR"
-touch "$LOG_FILE" 2>/dev/null || true
 
 # --- Helpers ---
 tty_print() { printf "%b\n" "$*" > /dev/tty; }
