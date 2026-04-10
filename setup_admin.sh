@@ -25,7 +25,7 @@ sudo chmod +x /usr/local/bin/docker-compose
 docker-compose --version
 
 # === STEP 5: Interactive Add Users to Docker Group ===
-echo "[INTERACTIVE] Configure Docker access for users..."
+echo "[STEP 5/10] Configure Docker access for users..."
 
 read -p "Do you want to add any users to the 'docker' group? (y/N): " add_user_choice
 
@@ -53,11 +53,19 @@ fi
 
 # === STEP 6: Install NoMachine Server for Remote GUI Access ===
 echo "[STEP 6/10] Installing NoMachine server..."
+
 NM_DOWNLOAD_URL="https://download.nomachine.com/download/8.10/Linux/nomachine_8.10.11_1_amd64.deb"
-wget ${NM_DOWNLOAD_URL} -O nomachine.deb
-sudo dpkg -i nomachine.deb || sudo apt-get install -f -y
-sudo systemctl enable nxserver
-rm nomachine.deb
+
+wget --max-redirect=10 --trust-server-names -O nomachine.deb "$NM_DOWNLOAD_URL"
+
+# Check if the downloaded file is a valid Debian package
+if dpkg-deb --info nomachine.deb > /dev/null 2>&1; then
+    sudo dpkg -i nomachine.deb || sudo apt-get install -f -y
+    sudo systemctl enable nxserver
+else
+    echo "❌ Failed to download a valid NoMachine Debian package. Please check the URL or download manually."
+    rm nomachine.deb
+fi
 
 # === STEP 7: Install Additional AI Workstation Tools ===
 echo "[STEP 7/10] Installing monitoring/storage tools (nvtop, gdu, ipmitool, git-lfs, nfs-common, iperf3)..."
