@@ -54,7 +54,6 @@ echo "[STEP 5/11] Configure Docker access for users..."
 if [ -t 0 ]; then
     read -p "Do you want to add any users to the 'docker' group? (y/N): " add_user_choice
 else
-    # Force reading from the controlling tty so the prompt appears even when stdin is redirected
     read -p "Do you want to add any users to the 'docker' group? (y/N): " add_user_choice < /dev/tty || add_user_choice="N"
 fi
 
@@ -62,7 +61,6 @@ if [[ "$add_user_choice" =~ ^[Yy]$ ]]; then
     while true; do
         read -p "Enter username to add to 'docker' group: " username < /dev/tty
 
-        # Check if user exists
         if id "$username" &>/dev/null; then
             echo "✔ Adding '$username' to the 'docker' group..."
             sudo usermod -aG docker "$username"
@@ -84,12 +82,9 @@ fi
 echo "[STEP 6/11] Installing NoMachine server..."
 NM_DOWNLOAD_URL="https://download.nomachine.com/download/8.10/Linux/nomachine_8.10.11_1_amd64.deb"
 echo "Downloading NoMachine from ${NM_DOWNLOAD_URL}"
-# Follow redirects and trust server filenames; save as nomachine.deb
 wget --max-redirect=10 --trust-server-names -O nomachine.deb "${NM_DOWNLOAD_URL}"
-# Verify the downloaded file is a valid Debian package before attempting to install
 if dpkg-deb --info nomachine.deb >/dev/null 2>&1; then
     sudo dpkg -i nomachine.deb || sudo apt-get install -f -y
-    # Enable the service only if the unit exists
     if systemctl list-unit-files | grep -q '^nxserver'; then
         sudo systemctl enable nxserver || true
     else
@@ -103,13 +98,11 @@ rm -f nomachine.deb
 # === STEP 7: Install Additional AI Workstation Tools ===
 echo "[STEP 7/11] Installing monitoring/storage tools (nvtop, gdu, ipmitool, git-lfs, nfs-common, iperf3)..."
 sudo DEBIAN_FRONTEND=noninteractive apt install -y nvtop ipmitool nfs-common iperf3 git-lfs
-# Ensure iperf3 does not run as a daemon or start on boot
 sudo systemctl stop iperf3 || true
 sudo systemctl disable iperf3 || true
 
 git lfs install
 
-# Fast disk usage analyzer
 if command_exists gdu; then
     echo "[INFO] GDU already installed"
 else
@@ -121,9 +114,7 @@ fi
 
 # === STEP 8: Install Fabric Manager for Multi-GPU Support ===
 echo "[STEP 8/11] Installing NVIDIA Fabric Manager..."
-# Check if NVIDIA drivers are installed
 if command_exists nvidia-smi; then
-    # Use force-overwrite to resolve file conflicts between different nvidia package versions
     sudo apt-get update
     sudo apt-get -y -o Dpkg::Options::="--force-overwrite" install nvidia-fabricmanager-580 || {
         echo "⚠️ Fabric manager install hit a conflict; attempting to fix broken dependencies..."
@@ -147,7 +138,16 @@ else
     curl -fsSL https://ollama.com/install.sh | sh
 fi
 
-# Create a systemd service for Ollama (if not already installed as service)
+# Create a dedicated system user for Ollama service if not exists
+OLLAMA_USER="ollama"
+if id "$OLLAMA_USER" &>/dev/null; then
+    echo "[INFO] Ollama user exists"
+else
+    echo "[INFO] Creating Ollama system user..."
+    sudo useradd --system --no-create-home --shell /usr/sbin/nologin "$OLLAMA_USER"
+fi
+
+# Create a systemd service for Ollama running as ollama user
 echo "[INFO] Setting up Ollama systemd service..."
 sudo tee /etc/systemd/system/ollama.service > /dev/null <<EOF
 [Unit]
@@ -157,8 +157,8 @@ After=network-online.target
 [Service]
 ExecStart=/usr/local/bin/ollama serve
 Restart=always
-User=root
-Group=root
+User=$OLLAMA_USER
+Group=$OLLAMA_USER
 
 [Install]
 WantedBy=multi-user.target
@@ -166,7 +166,6 @@ EOF
 
 sudo systemctl daemon-reload
 
-# Enable the service if not already enabled
 if systemctl is-enabled ollama >/dev/null 2>&1; then
     echo "[INFO] Ollama service already enabled"
 else
@@ -179,11 +178,15 @@ echo "[STEP 11/11] Install Visual Studio Code (GUI) locally?"
 
 read -p "Install VS Code GUI on this machine? (y/N): " install_vscode_gui
 if [[ "$install_vscode_gui" =~ ^[Yy]$ ]]; then
-    echo "✔ Installing VS Code (amd64)..."
-    wget -O vscode.deb "https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64"
-    sudo dpkg -i vscode.deb || sudo apt-get install -f -y
-    rm vscode.deb
-    echo "✔ VS Code installed. You can now launch it from Applications or run 'code' in terminal."
+    if command_exists code; then
+        echo "[INFO] VS Code already installed"
+    else
+        echo "✔ Installing VS Code (amd64)..."
+        wget -O vscode.deb "https://code.visualstudio.com/sha/download?build=stable&os=linux-deb-x64"
+        sudo dpkg -i vscode.deb || sudo apt-get install -f -y
+        rm vscode.deb
+        echo "✔ VS Code installed. You can now launch it from Applications or run 'code' in terminal."
+    fi
 else
     echo "⏭ Skipping local VS Code installation."
 fi
@@ -192,7 +195,6 @@ fi
 echo "[CLEANUP] Removing orphaned packages..."
 sudo apt autoremove -y && sudo apt autoclean
 
-# Final Output
 echo ""
 echo "[SUCCESS] Full sys-admin setup completed!"
 echo "👉 You can now:"
