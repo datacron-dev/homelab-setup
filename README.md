@@ -29,12 +29,14 @@ Designed for the **admin user** (`sys-admin`), this script handles:
 
 ### 👨‍🔬 `setup_dev.sh` — Developer Environment Setup
 
-For the **development user** (`ai-dev`), this includes:
+For the **development user** (`Non-Admin user`), this includes:
 
 - **Miniforge** (lightweight conda/mamba replacement).
 - **vLLM** for high-speed local inference.
 - **Open WebUI** (local ChatGPT-style interface).
 - **Node.js / npm** for web app development.
+- **JupyterLab** for interactive notebooks.
+- **Docker Compose** installed via pip for user-level container orchestration.
 - Auto-start scripts for local AI agents.
 
 ---
@@ -52,6 +54,17 @@ The script will walk you through:
 - Choosing optional tools like VS Code.
 
 ---
+
+### Run Dev Setup
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/datacron-dev/homelab-setup/main/setup_dev.sh | bash
+```
+
+This will install the Python environment, AI tools, and web app dependencies tailored for development.
+
+---
+
 
 ## 📌 Post-Install Steps
 
