@@ -69,7 +69,14 @@ fi
 
 # === STEP 7: Install Additional AI Workstation Tools ===
 echo "[STEP 7/10] Installing monitoring/storage tools (nvtop, gdu, ipmitool, git-lfs, nfs-common, iperf3)..."
-sudo apt install -y nvtop ipmitool nfs-common iperf3 git-lfs
+
+# Use noninteractive to prevent the iperf3 "Start as daemon" screen from blocking the script
+sudo DEBIAN_FRONTEND=noninteractive apt install -y nvtop ipmitool nfs-common iperf3 git-lfs
+
+# Ensure iperf3 is NOT running in the background and won't start on boot
+sudo systemctl stop iperf3 || true
+sudo systemctl disable iperf3 || true
+
 git lfs install
 
 # Fast disk usage analyzer
