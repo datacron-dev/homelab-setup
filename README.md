@@ -44,7 +44,7 @@ For the **development user** (`ai-dev`), this includes:
 ### Run Admin Setup
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/setup_admin.sh | bash
+curl -fsSL https://raw.githubusercontent.com/datacron-dev/homelab-setup/main/setup_admin.sh | bash
 ```
 
 The script will walk you through:
