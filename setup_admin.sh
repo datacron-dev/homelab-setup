@@ -11,7 +11,7 @@ sudo apt update && sudo apt full-upgrade -y
 
 # === STEP 2: Install Core Dev Tools ===
 echo "[STEP 2/10] Installing dev essentials: git, htop, jq, wget, curl..."
-sudo apt install -y git htop jq wget curl tree build-essential cmake ninja-build pkg-config libgl1-mesa-glx
+sudo apt install -y git htop jq wget curl tree build-essential cmake ninja-build pkg-config libgl1
 
 # === STEP 3: Enable Docker Service ===
 echo "[STEP 3/10] Ensuring Docker service is active and enabled..."
