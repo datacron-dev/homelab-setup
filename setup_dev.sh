@@ -134,19 +134,32 @@ fi
 echo "[INFO] Creating/updating .env file..."
 cat > .env << EOF
 OLLAMA_BASE_URL=http://localhost:11434
-WEBUI_SECRET_KEY=your-super-secret-key-change-this
+WEBUI_SECRET_KEY=$(openssl rand -hex 32 2>/dev/null || echo "default-secret-key-123")
 EOF
 
 # Install/update Python dependencies
+# FIX: Open WebUI requirements are now in the backend directory
 echo "[INFO] Installing/updating Python dependencies..."
-$PIP_BIN install -r requirements.txt
+if [ -f "backend/requirements.txt" ]; then
+    $PIP_BIN install -r backend/requirements.txt
+elif [ -f "requirements.txt" ]; then
+    $PIP_BIN install -r requirements.txt
+else
+    echo "[WARN] Could not find requirements.txt in root or backend folder."
+fi
 
 # Create a startup script for Open WebUI
 echo "[INFO] Creating Open WebUI startup script..."
 cat > "$HOME/start_webui.sh" << 'EOF'
 #!/bin/bash
-cd $HOME/open-webui
-$HOME/miniforge3/bin/python main.py
+export PATH="$HOME/miniforge3/bin:$PATH"
+cd $HOME/open-webui/backend
+# Check if we should use the start.sh or run manually
+if [ -f "start.sh" ]; then
+    bash start.sh
+else
+    python main.py
+fi
 EOF
 
 chmod +x "$HOME/start_webui.sh"
