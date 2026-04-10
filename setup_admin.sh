@@ -11,7 +11,7 @@ sudo apt update && sudo apt full-upgrade -y
 
 # === STEP 2: Install Core Dev Tools ===
 echo "[STEP 2/10] Installing dev essentials: git, htop, jq, wget, curl..."
-sudo apt install -y git htop jq wget curl tree build-essential cmake ninja-build pkg-config libgl1
+sudo DEBIAN_FRONTEND=noninteractive apt install -y git htop jq wget curl tree build-essential cmake ninja-build pkg-config libgl1
 
 # === STEP 3: Enable Docker Service ===
 echo "[STEP 3/10] Ensuring Docker service is active and enabled..."
@@ -25,13 +25,18 @@ sudo chmod +x /usr/local/bin/docker-compose
 docker-compose --version
 
 # === STEP 5: Interactive Add Users to Docker Group ===
-echo "[STEP 5/10] Configure Docker access for users..."
+echo "[INTERACTIVE] Configure Docker access for users..."
 
-read -p "Do you want to add any users to the 'docker' group? (y/N): " add_user_choice
+if [ -t 0 ]; then
+    read -p "Do you want to add any users to the 'docker' group? (y/N): " add_user_choice
+else
+    # Force reading from the controlling tty so the prompt appears even when stdin is redirected
+    read -p "Do you want to add any users to the 'docker' group? (y/N): " add_user_choice < /dev/tty || add_user_choice="N"
+fi
 
 if [[ "$add_user_choice" =~ ^[Yy]$ ]]; then
     while true; do
-        read -p "Enter username to add to 'docker' group: " username
+        read -p "Enter username to add to 'docker' group: " username < /dev/tty
 
         # Check if user exists
         if id "$username" &>/dev/null; then
@@ -42,7 +47,7 @@ if [[ "$add_user_choice" =~ ^[Yy]$ ]]; then
             continue
         fi
 
-        read -p "Add another user to 'docker' group? (y/N): " add_another
+        read -p "Add another user to 'docker' group? (y/N): " add_another < /dev/tty || add_another="N"
         if [[ ! "$add_another" =~ ^[Yy]$ ]]; then
             break
         fi
@@ -53,27 +58,28 @@ fi
 
 # === STEP 6: Install NoMachine Server for Remote GUI Access ===
 echo "[STEP 6/10] Installing NoMachine server..."
-
 NM_DOWNLOAD_URL="https://download.nomachine.com/download/8.10/Linux/nomachine_8.10.11_1_amd64.deb"
-
-wget --max-redirect=10 --trust-server-names -O nomachine.deb "$NM_DOWNLOAD_URL"
-
-# Check if the downloaded file is a valid Debian package
-if dpkg-deb --info nomachine.deb > /dev/null 2>&1; then
+echo "Downloading NoMachine from ${NM_DOWNLOAD_URL}"
+# Follow redirects and trust server filenames; save as nomachine.deb
+wget --max-redirect=10 --trust-server-names -O nomachine.deb "${NM_DOWNLOAD_URL}"
+# Verify the downloaded file is a valid Debian package before attempting to install
+if dpkg-deb --info nomachine.deb >/dev/null 2>&1; then
     sudo dpkg -i nomachine.deb || sudo apt-get install -f -y
-    sudo systemctl enable nxserver
+    # Enable the service only if the unit exists
+    if systemctl list-unit-files | grep -q '^nxserver'; then
+        sudo systemctl enable nxserver || true
+    else
+        echo "NoMachine installed but nxserver unit not found. Skipping enable."
+    fi
 else
-    echo "❌ Failed to download a valid NoMachine Debian package. Please check the URL or download manually."
-    rm nomachine.deb
+    echo "Downloaded file is not a valid .deb - skipping NoMachine installation."
 fi
+rm -f nomachine.deb
 
 # === STEP 7: Install Additional AI Workstation Tools ===
 echo "[STEP 7/10] Installing monitoring/storage tools (nvtop, gdu, ipmitool, git-lfs, nfs-common, iperf3)..."
-
-# Use noninteractive to prevent the iperf3 "Start as daemon" screen from blocking the script
 sudo DEBIAN_FRONTEND=noninteractive apt install -y nvtop ipmitool nfs-common iperf3 git-lfs
-
-# Ensure iperf3 is NOT running in the background and won't start on boot
+# Ensure iperf3 does not run as a daemon or start on boot
 sudo systemctl stop iperf3 || true
 sudo systemctl disable iperf3 || true
 
@@ -86,8 +92,13 @@ sudo chmod +x /usr/local/bin/gdu
 
 # === STEP 8: Install Fabric Manager for Multi-GPU Support ===
 echo "[STEP 8/10] Installing NVIDIA Fabric Manager..."
-sudo apt install -y nvidia-fabricmanager-580
-sudo systemctl enable --now nvidia-fabricmanager
+# Use force-overwrite to resolve file conflicts between different nvidia package versions
+sudo apt-get update
+sudo apt-get -y -o Dpkg::Options::="--force-overwrite" install nvidia-fabricmanager-580 || {
+    echo "⚠️ Fabric manager install hit a conflict; attempting to fix broken dependencies..."
+    sudo apt-get install -f -y
+}
+sudo systemctl enable --now nvidia-fabricmanager || true
 
 # === STEP 9: Optimize System for VS Code Remote ===
 echo "[STEP 9/10] Increasing inotify watches for VS Code..."
